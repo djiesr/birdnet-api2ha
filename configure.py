@@ -2,9 +2,12 @@
 """
 Configuration interactive ou automatique pour birdnet-api2ha.
 Recherche la base BirdNET-Go et la config, pose des questions si besoin, écrit config.yaml.
+Option: configurer le démarrage automatique au boot (fichier systemd).
 Usage: python configure.py [--non-interactive]
 """
 import argparse
+import getpass
+import subprocess
 import sys
 from pathlib import Path
 
@@ -123,6 +126,60 @@ def get_clips_path_from_birdnet_config(config_dir: Path) -> Path | None:
     return p
 
 
+SYSTEMD_SERVICE_NAME = "birdnet-api2ha"
+SYSTEMD_UNIT_TEMPLATE = """[Unit]
+Description=BirdNET-Go API to Home Assistant (birdnet-api2ha)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={user}
+Group={group}
+WorkingDirectory={workdir}
+
+# Python du venv (pas besoin d'activer le venv)
+ExecStart={python_path} main.py{mqtt_flag}
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def generate_systemd_unit(project_dir: Path, user: str, with_mqtt: bool) -> str:
+    """Génère le contenu du fichier unit systemd (utilise toujours venv/bin/python)."""
+    # Sous Linux/Raspberry le venv expose venv/bin/python
+    python_path = project_dir / "venv" / "bin" / "python"
+    mqtt_flag = " --mqtt" if with_mqtt else ""
+    return SYSTEMD_UNIT_TEMPLATE.format(
+        user=user,
+        group=user,
+        workdir=str(project_dir.resolve()),
+        python_path=str(python_path.resolve()),
+        mqtt_flag=mqtt_flag,
+    )
+
+
+def install_systemd_service(service_path: Path) -> bool:
+    """Copie le fichier service vers /etc/systemd/system/ et active le service. Nécessite sudo."""
+    try:
+        subprocess.run(
+            ["sudo", "cp", str(service_path), f"/etc/systemd/system/{SYSTEMD_SERVICE_NAME}.service"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True, capture_output=True)
+        subprocess.run(["sudo", "systemctl", "enable", SYSTEMD_SERVICE_NAME], check=True, capture_output=True)
+        subprocess.run(["sudo", "systemctl", "start", SYSTEMD_SERVICE_NAME], check=True, capture_output=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
 def run_interactive() -> dict:
     """Pose des questions et retourne la config à écrire."""
     print("=== birdnet-api2ha - Configuration ===\n")
@@ -196,6 +253,8 @@ def run_interactive() -> dict:
     mqtt_enabled = input("Activer le pont MQTT ? (o/N): ").strip().lower() in ("o", "y", "yes")
     mqtt_host = "localhost"
     mqtt_port = 1883
+    mqtt_username = ""
+    mqtt_password = ""
     mqtt_topic = "birdnet_api2ha/detections"
     if mqtt_enabled:
         mqtt_host = input("Broker MQTT (défaut localhost) [localhost]: ").strip() or "localhost"
@@ -204,9 +263,12 @@ def run_interactive() -> dict:
             mqtt_port = int(mqtt_port_str)
         except ValueError:
             mqtt_port = 1883
+        mqtt_username = input("Utilisateur MQTT (vide si aucun) []: ").strip()
+        mqtt_password = getpass.getpass("Mot de passe MQTT (vide si aucun): ")
         mqtt_topic = input("Topic (défaut birdnet_api2ha/detections) [birdnet_api2ha/detections]: ").strip() or mqtt_topic
 
-    return {
+    # 4) Démarrage automatique (systemd)
+    config = {
         "database_path": db_path,
         "clips_base_path": clips_path if clips_path else "",
         "birdnet_config_path": birdnet_config_path,
@@ -216,12 +278,38 @@ def run_interactive() -> dict:
             "enabled": mqtt_enabled,
             "host": mqtt_host,
             "port": mqtt_port,
-            "username": "",
-            "password": "",
+            "username": mqtt_username,
+            "password": mqtt_password,
             "topic": mqtt_topic,
             "poll_interval_seconds": 10,
         },
     }
+
+    setup_systemd = input("Configurer le démarrage automatique au boot (systemd) ? (o/N): ").strip().lower() in ("o", "y", "yes")
+    if setup_systemd:
+        project_dir = Path(__file__).resolve().parent
+        venv_python = project_dir / "venv" / "bin" / "python"
+        if not venv_python.is_file():
+            print("  Attention: venv non trouvé (venv/bin/python). Créez-le avec: python3 -m venv venv && source venv/bin/activate")
+        user = getpass.getuser()
+        mqtt_at_boot = input("  Inclure le pont MQTT au démarrage ? (o/N): ").strip().lower() in ("o", "y", "yes")
+        content = generate_systemd_unit(project_dir, user, mqtt_at_boot)
+        service_file = project_dir / f"{SYSTEMD_SERVICE_NAME}.service"
+        service_file.write_text(content, encoding="utf-8")
+        print(f"  Fichier créé: {service_file}")
+        print("  Pour installer et activer le service:")
+        print(f"    sudo cp {service_file} /etc/systemd/system/")
+        print("    sudo systemctl daemon-reload")
+        print(f"    sudo systemctl enable {SYSTEMD_SERVICE_NAME}")
+        print(f"    sudo systemctl start {SYSTEMD_SERVICE_NAME}")
+        install_now = input("  Installer et démarrer le service maintenant ? (nécessite sudo) (o/N): ").strip().lower() in ("o", "y", "yes")
+        if install_now:
+            if install_systemd_service(service_file):
+                print("  Service installé et démarré.")
+            else:
+                print("  Échec (sudo ?). Exécutez les commandes ci-dessus à la main.")
+
+    return config
 
 
 def run_non_interactive() -> dict:

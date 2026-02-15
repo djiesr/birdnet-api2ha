@@ -6,3 +6,5 @@ __pycache__/
 venv/
 *.db
 birdnet-backup-*/
+# Fichier systemd généré par configure.py (chemins utilisateur)
+birdnet-api2ha.service
