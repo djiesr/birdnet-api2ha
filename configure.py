@@ -5,11 +5,12 @@ Recherche la base BirdNET-Go et la config, pose des questions si besoin, écrit 
 Usage: python configure.py [--non-interactive]
 """
 import argparse
-import os
 import sys
 from pathlib import Path
 
 import yaml
+
+from birdnet_config import find_birdnet_config_path, get_birdnet_config_info
 
 # Dossiers typiques où chercher birdnet.db ou config BirdNET-Go
 SEARCH_DIRS = [
@@ -182,6 +183,15 @@ def run_interactive() -> dict:
     except ValueError:
         port = 8081
 
+    # birdnet_config_path pour /api/birdnet-config (type SQLite/MySQL, nom DB)
+    birdnet_config_path = ""
+    cfg_path = find_birdnet_config_path(db_path)
+    if cfg_path:
+        birdnet_config_path = str(cfg_path)
+        info = get_birdnet_config_info(db_path, birdnet_config_path)
+        if info:
+            print(f"Config BirdNET-Go: type={info['database_type']}, config={cfg_path}")
+
     # 3) MQTT
     mqtt_enabled = input("Activer le pont MQTT ? (o/N): ").strip().lower() in ("o", "y", "yes")
     mqtt_host = "localhost"
@@ -199,6 +209,7 @@ def run_interactive() -> dict:
     return {
         "database_path": db_path,
         "clips_base_path": clips_path if clips_path else "",
+        "birdnet_config_path": birdnet_config_path,
         "http_host": "0.0.0.0",
         "http_port": port,
         "mqtt": {
@@ -238,9 +249,15 @@ def run_non_interactive() -> dict:
         if candidate.is_dir():
             clips_path = str(candidate)
 
+    birdnet_config_path = ""
+    cfg_path = find_birdnet_config_path(db_path)
+    if cfg_path:
+        birdnet_config_path = str(cfg_path)
+
     return {
         "database_path": db_path,
         "clips_base_path": clips_path,
+        "birdnet_config_path": birdnet_config_path,
         "http_host": "0.0.0.0",
         "http_port": 8081,
         "mqtt": {

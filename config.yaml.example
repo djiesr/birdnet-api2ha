@@ -1,11 +1,14 @@
 # BirdNET-Go API to Home Assistant - Configuration example
 # Copy to config.yaml and adjust paths.
 
-# Path to BirdNET-Go SQLite database (read-only)
-database_path: "/home/djiesr/birdnet-go-app/data/birdnet.db"
+# Path to BirdNET-Go SQLite database (read-only). Leave empty and run: python configure.py
+database_path: ""
 
 # Optional: base directory for audio clips (for building audio_url)
-clips_base_path: "/home/djiesr/birdnet-go-app/data/clips"
+clips_base_path: ""
+
+# Optional: path to BirdNET-Go config.yaml (to show DB type and name in /api/birdnet-config)
+birdnet_config_path: ""
 
 # HTTP server
 http_host: "0.0.0.0"
