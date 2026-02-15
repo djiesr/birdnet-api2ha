@@ -213,6 +213,26 @@ Après une mise à jour du code ou du venv (`pip install -r requirements.txt`), 
 sudo systemctl restart birdnet-api2ha
 ```
 
+## Mise à jour (mettre à jour birdnet-api2ha)
+
+Sur une machine où **birdnet-api2ha** est déjà installé (Raspberry Pi ou serveur) :
+
+```bash
+cd ~/birdnet-api2ha   # ou le chemin où tu as cloné le dépôt
+
+# Récupérer les dernières modifications depuis GitHub
+git pull origin master
+
+# Réactiver le venv et mettre à jour les dépendances (au cas où requirements.txt a changé)
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Redémarrer le service pour prendre en compte le nouveau code
+sudo systemctl restart birdnet-api2ha
+```
+
+Si tu n’utilises **pas** systemd (tu lances à la main avec `python main.py`), arrête le processus (Ctrl+C) puis relance après le `git pull` et le `pip install -r requirements.txt`.
+
 ## Home Assistant
 
 - **REST** : capteurs REST sur `http://IP_DU_PI:8081/api/stats` et `http://IP_DU_PI:8081/api/detections?limit=10`. Exemples de capteurs et automatisations dans la doc d’intégration HA (voir dépôt BirdNET-Go ou ce README).
