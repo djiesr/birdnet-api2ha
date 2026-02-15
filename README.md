@@ -21,12 +21,29 @@ Ce service lit la base SQLite de BirdNET-Go en lecture seule et expose une API R
 ```bash
 git clone https://github.com/djiesr/birdnet-api2ha.git
 cd birdnet-api2ha
-cp config.yaml.example config.yaml
-# Éditer config.yaml : database_path, port, MQTT si besoin
 pip install -r requirements.txt
 ```
 
-## Configuration
+## Configuration automatique ou guidée
+
+Le script **configure.py** cherche tout seul la base BirdNET-Go et (si trouvée) la config BirdNET-Go pour en déduire le chemin des clips, puis pose quelques questions (port, MQTT) et écrit **config.yaml**.
+
+```bash
+# Mode guidé (questions interactives)
+python configure.py
+
+# Mode automatique (première base trouvée, valeurs par défaut, pas de questions)
+python configure.py --non-interactive
+```
+
+Recherche effectuée dans :
+
+- `~/birdnet-go-app/data/`, `~/BirdNET-Go/`, répertoire courant, etc.
+- Si un **config.yaml** BirdNET-Go est trouvé, les champs `output.sqlite.path` et `realtime.audio.export.path` sont lus pour remplir `database_path` et `clips_base_path`.
+
+Ensuite : `python main.py` ou `python main.py --mqtt`.
+
+## Configuration manuelle
 
 Dans `config.yaml` (voir `config.yaml.example`) :
 
