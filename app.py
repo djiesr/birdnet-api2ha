@@ -1,16 +1,19 @@
 """
-Flask API: GET /api/detections, GET /api/stats.
+Flask API: GET /api/detections, GET /api/stats, GET /api/system.
 Same JSON contract as BirdNET-Go Home Assistant API.
 """
 import os
+import socket
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
+import psutil
 from flask import Flask, jsonify, request
 
 from config import load_config
-from db import get_connection, get_detections_v2, get_stats_v2, SchemaError
+from db import get_connection, get_detections_v2, get_stats_v2, get_hourly_detections, get_aggregate_detections, SchemaError
 from birdnet_config import get_birdnet_config_info
 
 app = Flask(__name__)
@@ -170,6 +173,66 @@ def api_stats():
     except sqlite3.OperationalError as e:
         return jsonify({"error": f"Database error: {e}"}), 500
     return jsonify(items)
+
+
+@app.route("/api/hourly")
+def api_hourly():
+    """Détections par espèce par heure pour une date donnée."""
+    cfg = get_config()
+    db_path = (cfg.get("database_path") or "").strip()
+    if not db_path or not os.path.isfile(db_path):
+        return jsonify({"date": "", "sunrise": None, "sunset": None, "species": []}), 200
+    date_str = (request.args.get("date") or "").strip()
+    if not date_str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with get_connection(db_path) as conn:
+            data = get_hourly_detections(conn, date_str)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify(data)
+
+
+@app.route("/api/aggregate")
+def api_aggregate():
+    """Détections agrégées par jour/semaine/mois. ?mode=daily|weekly|monthly"""
+    cfg = get_config()
+    db_path = (cfg.get("database_path") or "").strip()
+    if not db_path or not os.path.isfile(db_path):
+        return jsonify({"mode": "", "columns": [], "species": []}), 200
+    mode = request.args.get("mode", "daily").strip().lower()
+    if mode not in ("daily", "weekly", "monthly"):
+        return jsonify({"error": "mode doit être daily, weekly ou monthly"}), 400
+    try:
+        with get_connection(db_path) as conn:
+            data = get_aggregate_detections(conn, mode)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify(data)
+
+
+@app.route("/api/system")
+def api_system():
+    """Métriques système du serveur : IP, CPU, RAM, disque, uptime."""
+    try:
+        # IP de l'interface réseau sortante (sans envoyer de paquets)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip_address = s.getsockname()[0]
+        s.close()
+    except Exception:
+        ip_address = "unknown"
+
+    uptime_seconds = int(time.time() - psutil.boot_time())
+    disk = psutil.disk_usage("/")
+
+    return jsonify({
+        "ip_address": ip_address,
+        "uptime_seconds": uptime_seconds,
+        "cpu_percent": psutil.cpu_percent(interval=None),
+        "memory_percent": psutil.virtual_memory().percent,
+        "disk_percent": disk.percent,
+    })
 
 
 def run_app():

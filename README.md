@@ -3,6 +3,21 @@
 **Pont entre BirdNET-Go et Home Assistant** sans modifier le code de BirdNET-Go.  
 Ce service lit la base SQLite de BirdNET-Go en lecture seule et expose une API REST + option MQTT pour Home Assistant.
 
+> **Partie de l'écosystème birdnet-api2ha.**
+> Le dépôt principal (intégration HA) est [birdnet-api2ha-custom_components](https://github.com/djiesr/birdnet-api2ha-custom_components).
+
+---
+
+## Écosystème
+
+| Dépôt | Rôle |
+|-------|------|
+| [birdnet-api2ha-custom_components](https://github.com/djiesr/birdnet-api2ha-custom_components) | **Intégration HA** — dépôt principal, capteurs et binary sensors |
+| **birdnet-api2ha** *(ce dépôt)* | **API REST** — lit la base BirdNET-Go, sert les données |
+| [birdnet-api2ha-custom_card](https://github.com/djiesr/birdnet-api2ha-custom_card) | **Carte Lovelace** — heatmap d'activité, addon optionnel |
+
+---
+
 ## Fonctionnalités
 
 - **API REST** (même contrat que l’API “Home Assistant” du fork)  
@@ -235,26 +250,27 @@ Si tu n’utilises **pas** systemd (tu lances à la main avec `python main.py`),
 
 ## Home Assistant
 
-- **REST** : capteurs REST sur `http://IP_DU_PI:8081/api/stats` et `http://IP_DU_PI:8081/api/detections?limit=10`. Exemples de capteurs et automatisations dans la doc d’intégration HA (voir dépôt BirdNET-Go ou ce README).
-- **MQTT** : s’abonner au topic `birdnet_api2ha/detections` ; chaque message = une détection (JSON avec `common_name`, `scientific_name`, `confidence`, `timestamp`, `id`). Tu peux filtrer migrateurs / espèces côté HA.
+L’intégration recommandée est **[birdnet-api2ha-custom_components](https://github.com/djiesr/birdnet-api2ha-custom_components)** — elle crée automatiquement tous les capteurs, binary sensors et gère la résilience.
+
+- **REST** : les endpoints `/api/stats`, `/api/detections`, `/api/hourly`, `/api/aggregate`, `/api/system` sont documentés dans l’intégration HA.
+- **MQTT** : s’abonner au topic `birdnet_api2ha/detections` ; chaque message = une détection (JSON avec `common_name`, `scientific_name`, `confidence`, `timestamp`, `id`).
+- **Carte Lovelace** : voir [birdnet-api2ha-custom_card](https://github.com/djiesr/birdnet-api2ha-custom_card) pour le tableau d’activité heatmap.
 
 ## Backup et base de test
 
 Tu peux pointer `database_path` vers une **copie** de ta base (ex. ton backup `birdnet-backup-20260215-0937/birdnet.db`) pour tester sans toucher à l’installation BirdNET-Go en production.
 
-## Créer le dépôt GitHub
+## Créer / mettre à jour le dépôt GitHub
 
-1. Sur GitHub : **New repository** → nom **birdnet-api2ha** (pas de README initial si tu clones ci‑dessous).
-2. En local (dans le dossier du projet) :
-   ```bash
-   cd birdnet-api2ha
-   git init
-   git add .
-   git commit -m "Initial: API REST + pont MQTT pour Home Assistant"
-   git remote add origin https://github.com/djiesr/birdnet-api2ha.git
-   git branch -M main
-   git push -u origin main
-   ```
+```bash
+cd birdnet-api2ha
+git init
+git add .
+git commit -m "Initial: API REST + pont MQTT pour Home Assistant"
+git remote add origin https://github.com/djiesr/birdnet-api2ha.git
+git branch -M main
+git push -u origin main
+```
 
 ## Licence
 
