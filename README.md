@@ -228,25 +228,59 @@ Après une mise à jour du code ou du venv (`pip install -r requirements.txt`), 
 sudo systemctl restart birdnet-api2ha
 ```
 
-## Mise à jour (mettre à jour birdnet-api2ha)
+## Mise à jour
 
-Sur une machine où **birdnet-api2ha** est déjà installé (Raspberry Pi ou serveur) :
+### Avec systemd (recommandé)
 
 ```bash
-cd ~/birdnet-api2ha   # ou le chemin où tu as cloné le dépôt
+# 1. Se placer dans le dossier du projet
+cd ~/birdnet-api2ha
 
-# Récupérer les dernières modifications depuis GitHub
+# 2. Récupérer la dernière version
 git pull origin master
 
-# Réactiver le venv et mettre à jour les dépendances (au cas où requirements.txt a changé)
+# 3. Activer le venv et mettre à jour les dépendances
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Redémarrer le service pour prendre en compte le nouveau code
+# 4. Redémarrer le service
 sudo systemctl restart birdnet-api2ha
+
+# 5. Vérifier que tout tourne
+sudo systemctl status birdnet-api2ha
 ```
 
-Si tu n’utilises **pas** systemd (tu lances à la main avec `python main.py`), arrête le processus (Ctrl+C) puis relance après le `git pull` et le `pip install -r requirements.txt`.
+### Sans systemd (lancement manuel)
+
+```bash
+# Arrêter le processus en cours (Ctrl+C dans le terminal où il tourne, ou)
+pkill -f "python main.py"
+
+# Mettre à jour
+cd ~/birdnet-api2ha
+git pull origin master
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Relancer
+python main.py
+# ou avec MQTT :
+python main.py --mqtt
+```
+
+### Vérifier la version installée
+
+```bash
+cd ~/birdnet-api2ha && git log --oneline -1
+```
+
+### Voir les logs après mise à jour
+
+```bash
+sudo journalctl -u birdnet-api2ha -f
+```
+
+> **Note** : après chaque mise à jour, l’API est accessible sur `http://IP_DU_PI:8081/`. Le endpoint `/health` confirme que le service est opérationnel.
 
 ## Home Assistant
 
