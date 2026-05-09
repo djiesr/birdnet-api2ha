@@ -319,6 +319,17 @@ Puis redémarrez le conteneur. Sur un Raspberry avec systemd, le fuseau suit en 
 
 L’endpoint **`GET /api/hourly`** renvoie aussi **`sunrise_hour`** et **`sunset_hour`** (entiers 0–23), calculés avec le **même fuseau** que les colonnes horaires, pour que la barre *Daylight* de la carte Lovelace s’aligne sur la grille.
 
+### Fuseau explicite `timezone` (recommandé en Docker UTC)
+
+Même avec **`TZ`** sur le conteneur, SQLite `localtime` peut rester décalé selon l’image. Pour que **`hourly_counts[0..23]`** corresponde au fuseau du jardin / de BirdNET-Go, définissez dans **`config.yaml`** :
+
+```yaml
+timezone: "America/Toronto"
+```
+
+(valeur [IANA](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), ex. `Europe/Paris`.)  
+Avec **`timezone`** renseigné, l’API agrège les timestamps Unix avec **`zoneinfo`** (schéma v2) et renvoie aussi **`timezone`** dans le JSON. Sans cette clé, l’ancien mode SQLite `localtime` est conservé.
+
 ## Backup et base de test
 
 Tu peux pointer `database_path` vers une **copie** de ta base (ex. ton backup `birdnet-backup-20260215-0937/birdnet.db`) pour tester sans toucher à l’installation BirdNET-Go en production.

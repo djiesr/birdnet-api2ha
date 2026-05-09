@@ -3,10 +3,17 @@ Read-only access to BirdNET-Go SQLite database.
 Supports v2 schema (detections+labels) and legacy schema (notes).
 """
 import sqlite3
+from collections import defaultdict
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date as date_type
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Generator, Optional
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # Python < 3.9 (non prévu ici)
+    ZoneInfo = None  # type: ignore
 
 
 def _db_uri(db_path: str) -> str:
@@ -77,6 +84,85 @@ def _label_preferred_name_sql(conn: sqlite3.Connection, alias: str = "l") -> str
             qcol = actual.replace('"', '""')
             return f'COALESCE(NULLIF(TRIM({a}."{qcol}"), \'\'), {a}.scientific_name)'
     return f"{alias}.scientific_name"
+
+
+def _local_day_unix_range(tz_name: str, date_str: str) -> tuple[int, int]:
+    """Minuit local → minuit+1j (IANA), bornes Unix pour filtrer detected_at."""
+    if ZoneInfo is None:
+        raise RuntimeError("zoneinfo indisponible (Python 3.9+ requis)")
+    tz = ZoneInfo(tz_name.strip())
+    d = date_type.fromisoformat(date_str)
+    start = datetime.combine(d, time.min, tzinfo=tz)
+    end = datetime.combine(d + timedelta(days=1), time.min, tzinfo=tz)
+    return int(start.timestamp()), int(end.timestamp())
+
+
+def _hourly_v2_with_timezone(
+    conn: sqlite3.Connection, date_str: str, tz_name: str
+) -> list[dict[str, Any]]:
+    """Une ligne par détection ; agrégation par heure locale IANA (pas SQLite localtime)."""
+    if ZoneInfo is None:
+        raise RuntimeError("zoneinfo indisponible")
+    tz = ZoneInfo(tz_name.strip())
+    start_ts, end_ts = _local_day_unix_range(tz_name, date_str)
+    name_sql = _label_preferred_name_sql(conn)
+    sql = f"""
+        SELECT l.scientific_name,
+               {name_sql} AS common_name,
+               d.detected_at,
+               ic.url AS image_url
+        FROM detections d
+        JOIN labels l ON l.id = d.label_id
+        LEFT JOIN image_caches ic ON ic.label_id = l.id
+        WHERE d.detected_at >= ? AND d.detected_at < ?
+    """
+    rows = conn.execute(sql, [start_ts, end_ts]).fetchall()
+
+    # (scientific_name, hour) -> count ; common_name et image par espèce
+    counts: dict[tuple[str, int], int] = defaultdict(int)
+    meta: dict[str, dict[str, str]] = {}
+
+    for row in rows:
+        r = _row_to_dict(row)
+        ts = r.get("detected_at")
+        if ts is None:
+            continue
+        try:
+            local_dt = datetime.fromtimestamp(int(ts), tz=tz)
+        except (ValueError, OSError, OverflowError):
+            continue
+        if local_dt.date() != date_type.fromisoformat(date_str):
+            continue
+        hour = local_dt.hour
+        name = r.get("scientific_name") or ""
+        if not name:
+            continue
+        counts[(name, hour)] += 1
+        if name not in meta:
+            meta[name] = {
+                "common_name": (r.get("common_name") or "").strip() or name,
+                "image_url": (r.get("image_url") or "").strip(),
+            }
+        else:
+            if not meta[name]["image_url"] and r.get("image_url"):
+                meta[name]["image_url"] = (r.get("image_url") or "").strip()
+            cn = (r.get("common_name") or "").strip()
+            if cn and meta[name]["common_name"] == name:
+                meta[name]["common_name"] = cn
+
+    out: list[dict[str, Any]] = []
+    for (sci, hour), cnt in counts.items():
+        m = meta.get(sci, {"common_name": sci, "image_url": ""})
+        out.append(
+            {
+                "scientific_name": sci,
+                "common_name": m["common_name"],
+                "hour": hour,
+                "count": cnt,
+                "image_url": m["image_url"],
+            }
+        )
+    return out
 
 
 def _parse_legacy_datetime(date_str: str, time_str: str) -> str:
@@ -328,11 +414,17 @@ def get_stats_v2(
     ]
 
 
-def get_hourly_detections(conn: sqlite3.Connection, date_str: str) -> dict:
+def get_hourly_detections(
+    conn: sqlite3.Connection, date_str: str, timezone: Optional[str] = None
+) -> dict:
     """Hourly detection counts per species for a given date (YYYY-MM-DD).
-    Returns sunrise/sunset as Unix timestamps for the JS client to convert to local time.
+
+    timezone: fuseau IANA (ex. America/Toronto). Si renseigné (schéma v2), les heures
+    0–23 et le filtre « jour » sont calculés avec zoneinfo (indépendant du TZ du
+    processus / Docker). Sinon, comportement historique : SQLite localtime.
     """
     schema = detect_schema(conn)
+    tz_cfg = (timezone or "").strip()
 
     if schema == "legacy":
         sql = """
@@ -348,20 +440,27 @@ def get_hourly_detections(conn: sqlite3.Connection, date_str: str) -> dict:
         """
         rows = [_row_to_dict(r) for r in conn.execute(sql, [date_str]).fetchall()]
     elif schema == "v2":
-        name_sql = _label_preferred_name_sql(conn)
-        sql = f"""
-            SELECT l.scientific_name,
-                   MAX({name_sql}) AS common_name,
-                   CAST(strftime('%H', datetime(d.detected_at, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
-                   COUNT(*) AS count,
-                   MAX(ic.url) AS image_url
-            FROM detections d
-            JOIN labels l ON l.id = d.label_id
-            LEFT JOIN image_caches ic ON ic.label_id = l.id
-            WHERE date(datetime(d.detected_at, 'unixepoch', 'localtime')) = ?
-            GROUP BY l.scientific_name, hour
-        """
-        rows = [_row_to_dict(r) for r in conn.execute(sql, [date_str]).fetchall()]
+        if tz_cfg and ZoneInfo is not None:
+            try:
+                ZoneInfo(tz_cfg)  # valide le nom
+            except Exception as e:
+                raise ValueError(f"timezone IANA invalide: {tz_cfg!r} ({e})") from e
+            rows = _hourly_v2_with_timezone(conn, date_str, tz_cfg)
+        else:
+            name_sql = _label_preferred_name_sql(conn)
+            sql = f"""
+                SELECT l.scientific_name,
+                       MAX({name_sql}) AS common_name,
+                       CAST(strftime('%H', datetime(d.detected_at, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
+                       COUNT(*) AS count,
+                       MAX(ic.url) AS image_url
+                FROM detections d
+                JOIN labels l ON l.id = d.label_id
+                LEFT JOIN image_caches ic ON ic.label_id = l.id
+                WHERE date(datetime(d.detected_at, 'unixepoch', 'localtime')) = ?
+                GROUP BY l.scientific_name, hour
+            """
+            rows = [_row_to_dict(r) for r in conn.execute(sql, [date_str]).fetchall()]
     else:
         return {"date": date_str, "sunrise": None, "sunset": None, "species": []}
 
@@ -393,20 +492,34 @@ def get_hourly_detections(conn: sqlite3.Connection, date_str: str) -> dict:
     ).fetchone()
     de = _row_to_dict(de_row) if de_row else {}
 
-    # Heures 0–23 alignées sur le même fuseau que strftime(..., 'localtime') (serveur / TZ conteneur).
+    # Heures 0–23 : même fuseau que les comptes (IANA si timezone config, sinon serveur).
     sr_h = ss_h = None
+    tz_for_sun = None
+    if tz_cfg and ZoneInfo is not None:
+        try:
+            tz_for_sun = ZoneInfo(tz_cfg)
+        except Exception:
+            tz_for_sun = None
     if de.get("sunrise") is not None:
         try:
-            sr_h = int(datetime.fromtimestamp(int(de["sunrise"])).hour)
+            ts = int(de["sunrise"])
+            if tz_for_sun is not None:
+                sr_h = int(datetime.fromtimestamp(ts, tz=tz_for_sun).hour)
+            else:
+                sr_h = int(datetime.fromtimestamp(ts).hour)
         except (ValueError, TypeError, OSError, OverflowError):
             sr_h = None
     if de.get("sunset") is not None:
         try:
-            ss_h = int(datetime.fromtimestamp(int(de["sunset"])).hour)
+            ts = int(de["sunset"])
+            if tz_for_sun is not None:
+                ss_h = int(datetime.fromtimestamp(ts, tz=tz_for_sun).hour)
+            else:
+                ss_h = int(datetime.fromtimestamp(ts).hour)
         except (ValueError, TypeError, OSError, OverflowError):
             ss_h = None
 
-    return {
+    out: dict[str, Any] = {
         "date": date_str,
         "sunrise": de.get("sunrise"),
         "sunset": de.get("sunset"),
@@ -414,6 +527,9 @@ def get_hourly_detections(conn: sqlite3.Connection, date_str: str) -> dict:
         "sunset_hour": ss_h,
         "species": species_list,
     }
+    if tz_cfg:
+        out["timezone"] = tz_cfg
+    return out
 
 
 def get_aggregate_detections(conn: sqlite3.Connection, mode: str) -> dict:

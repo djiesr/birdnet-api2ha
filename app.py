@@ -209,9 +209,10 @@ def api_hourly():
     date_str = (request.args.get("date") or "").strip()
     if not date_str:
         date_str = datetime.now().strftime("%Y-%m-%d")
+    tz = (cfg.get("timezone") or "").strip() or None
     try:
         with get_connection(db_path) as conn:
-            data = get_hourly_detections(conn, date_str)
+            data = get_hourly_detections(conn, date_str, timezone=tz)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     return jsonify(data)
