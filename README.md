@@ -268,6 +268,28 @@ python main.py
 python main.py --mqtt
 ```
 
+### NAS / Docker (archive `.tar.gz`, sans `git`)
+
+Pour un conteneur qui monte le code depuis un dossier partagé (ex. UGREEN), remplacez le chemin et la **version** (`v1.1.4`) par celle de la [release souhaitée](https://github.com/djiesr/birdnet-api2ha/releases).
+
+```bash
+sudo docker stop birdnet-api2ha
+sudo cp /volume1/Docker/birdnet-api2ha/config.yaml /tmp/config-birdnet-api2ha.yaml.bak
+sudo rm -rf /volume1/Docker/birdnet-api2ha
+cd /tmp
+sudo curl -L -o birdnet-api2ha.tar.gz "https://github.com/djiesr/birdnet-api2ha/archive/refs/tags/v1.1.4.tar.gz"
+sudo tar xzf birdnet-api2ha.tar.gz
+sudo mv birdnet-api2ha-1.1.4 /volume1/Docker/birdnet-api2ha
+sudo cp /tmp/config-birdnet-api2ha.yaml.bak /volume1/Docker/birdnet-api2ha/config.yaml
+sudo docker start birdnet-api2ha
+sudo docker logs --tail 40 birdnet-api2ha
+curl -s http://127.0.0.1:8081/health
+```
+
+- Le dossier extrait s’appelle **`birdnet-api2ha-1.1.4`** (même numéro que le tag, avec un tiret).
+- Après copie de `config.yaml`, vérifiez qu’il contient toujours **`cors:`**, **`timezone:`** (IANA, ex. `America/Toronto`) et les chemins `database_path` / volumes.
+- Si le port hôte n’est pas **8081**, adaptez l’URL du `curl`.
+
 ### Vérifier la version installée
 
 ```bash
