@@ -290,6 +290,17 @@ L’intégration recommandée est **[birdnet-api2ha-custom_components](https://g
 - **MQTT** : s’abonner au topic `birdnet_api2ha/detections` ; chaque message = une détection (JSON avec `common_name`, `scientific_name`, `confidence`, `timestamp`, `id`).
 - **Carte Lovelace** : voir [birdnet-api2ha-custom_card](https://github.com/djiesr/birdnet-api2ha-custom_card) pour le tableau d’activité heatmap.
 
+### Carte Lovelace : CORS (important)
+
+La carte Lovelace fait des requêtes **depuis le navigateur** (origine Home Assistant, ex. `http://homeassistant.local:8123`) vers l’API (ex. `http://IP_DU_PI:8081`). Il faut donc autoriser cette origine via CORS dans `config.yaml` :
+
+```yaml
+cors:
+  allowed_origins:
+    - "http://homeassistant.local:8123"
+    # - "http://192.168.10.50:8123"  # si vous accédez à HA via IP
+```
+
 ## Backup et base de test
 
 Tu peux pointer `database_path` vers une **copie** de ta base (ex. ton backup `birdnet-backup-20260215-0937/birdnet.db`) pour tester sans toucher à l’installation BirdNET-Go en production.

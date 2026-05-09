@@ -11,6 +11,7 @@ from typing import Optional
 
 import psutil
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 from config import load_config
 from db import get_connection, get_detections_v2, get_stats_v2, get_hourly_detections, get_aggregate_detections, SchemaError
@@ -25,6 +26,29 @@ def get_config():
     if _config is None:
         _config = load_config()
     return _config
+
+
+def _setup_cors():
+    """
+    Active CORS uniquement si configuré (pour la carte Lovelace qui fait des fetch depuis le navigateur).
+    Config:
+      cors:
+        allowed_origins:
+          - "http://homeassistant.local:8123"
+    """
+    cfg = get_config()
+    cors_cfg = cfg.get("cors") or {}
+    allowed_origins = cors_cfg.get("allowed_origins") or []
+    # Autoriser aussi une config simple: cors_allowed_origins: [...]
+    if not allowed_origins:
+        allowed_origins = cfg.get("cors_allowed_origins") or []
+
+    # Si vide → pas de CORS
+    allowed_origins = [o.strip() for o in allowed_origins if isinstance(o, str) and o.strip()]
+    if not allowed_origins:
+        return
+
+    CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 
 
 def _parse_date_range(period: Optional[str], date_start: Optional[str], date_end: Optional[str]):
@@ -239,6 +263,7 @@ def run_app():
     cfg = load_config()
     host = cfg.get("http_host", "0.0.0.0")
     port = int(cfg.get("http_port", 8081))
+    _setup_cors()
     # Vérifier que les routes sont bien enregistrées (éviter 404 si ancien process)
     rules = [r.rule for r in app.url_map.iter_rules() if not r.rule.startswith("/static")]
     print(f"Routes: {rules}")
