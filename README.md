@@ -343,32 +343,29 @@ cors:
 
 ### Fuseau horaire (Docker / serveur)
 
-L’API regroupe les détections par heure et par jour avec SQLite (`datetime(..., 'localtime')`). L’« heure locale » utilisée est celle du **processus Python** (système / conteneur).
+Pour **`GET /api/hourly`** (schéma v2), l’API choisit un fuseau **IANA** dans cet ordre :
 
-- Sous **Docker**, sans `TZ`, l’image est souvent en **UTC** : les colonnes 0–23 h du mode « Heure » ne correspondront pas à votre fuseau.
-- **Recommandation :** définir la même variable d’environnement **`TZ`** que pour BirdNET-Go, par exemple :
+1. **`timezone`** dans **`config.yaml`** (prioritaire)  
+2. sinon la variable d’environnement **`TZ`** du processus (ex. Docker Compose), **si** c’est un identifiant IANA valide (`America/Toronto`, `Europe/Paris`, etc.)
+
+Si l’un des deux est valide, l’agrégation utilise **`zoneinfo`** sur les timestamps Unix : **`hourly_counts[0..23]`**, **`sunrise_hour`** / **`sunset_hour`** et la date par défaut (sans paramètre `date`) sont cohérents avec ce fuseau. Le JSON inclut alors le champ **`"timezone"`** — c’est le moyen le plus simple de vérifier que ce mode est actif.
+
+Si aucun fuseau IANA valide n’est disponible, l’API retombe sur SQLite **`localtime`** : sous Docker sans `TZ`, c’est souvent **UTC**, ce qui décale les pics par rapport à votre heure « réelle ».
+
+**Docker Compose** (même `TZ` que BirdNET-Go) :
 
 ```yaml
 environment:
   - TZ=America/Toronto
 ```
 
-(Exemple pour un service `birdnet-api2ha` dans Docker Compose ; adaptez le fuseau IANA à votre région.)
+(adaptez la [zone IANA](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) à votre région, puis redémarrez le conteneur.)
 
-Puis redémarrez le conteneur. Sur un Raspberry avec systemd, le fuseau suit en général celui du système (`timedatectl`).
-
-L’endpoint **`GET /api/hourly`** renvoie aussi **`sunrise_hour`** et **`sunset_hour`** (entiers 0–23), calculés avec le **même fuseau** que les colonnes horaires, pour que la barre *Daylight* de la carte Lovelace s’aligne sur la grille.
-
-### Fuseau explicite `timezone` (recommandé en Docker UTC)
-
-Même avec **`TZ`** sur le conteneur, SQLite `localtime` peut rester décalé selon l’image. Pour que **`hourly_counts[0..23]`** corresponde au fuseau du jardin / de BirdNET-Go, définissez dans **`config.yaml`** :
+Sur un Raspberry avec **systemd**, le fuseau suit en général celui du système (`timedatectl`). Vous pouvez aussi fixer explicitement dans **`config.yaml`** :
 
 ```yaml
 timezone: "America/Toronto"
 ```
-
-(valeur [IANA](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), ex. `Europe/Paris`.)  
-Avec **`timezone`** renseigné, l’API agrège les timestamps Unix avec **`zoneinfo`** (schéma v2) et renvoie aussi **`timezone`** dans le JSON. Sans cette clé, l’ancien mode SQLite `localtime` est conservé.
 
 ## Backup et base de test
 

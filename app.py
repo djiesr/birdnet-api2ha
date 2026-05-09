@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import psutil
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -26,6 +27,24 @@ def get_config():
     if _config is None:
         _config = load_config()
     return _config
+
+
+def _effective_timezone_for_hourly(cfg: dict) -> Optional[str]:
+    """
+    Fuseau IANA pour /api/hourly (schéma v2) : d'abord config.yaml `timezone`,
+    sinon la variable d'environnement TZ (souvent déjà définie dans Docker Compose).
+    SQLite `localtime` peut rester en UTC même avec TZ ; zoneinfo utilise la même
+    base que les timestamps Unix → grille 0–23 alignée sur le lieu réel.
+    """
+    for candidate in ((cfg.get("timezone") or "").strip(), (os.environ.get("TZ") or "").strip()):
+        if not candidate:
+            continue
+        try:
+            ZoneInfo(candidate)
+            return candidate
+        except ZoneInfoNotFoundError:
+            continue
+    return None
 
 
 def _setup_cors():
@@ -207,9 +226,15 @@ def api_hourly():
     if not db_path or not os.path.isfile(db_path):
         return jsonify({"date": "", "sunrise": None, "sunset": None, "species": []}), 200
     date_str = (request.args.get("date") or "").strip()
+    tz = _effective_timezone_for_hourly(cfg)
     if not date_str:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-    tz = (cfg.get("timezone") or "").strip() or None
+        if tz:
+            try:
+                date_str = datetime.now(ZoneInfo(tz)).strftime("%Y-%m-%d")
+            except Exception:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+        else:
+            date_str = datetime.now().strftime("%Y-%m-%d")
     try:
         with get_connection(db_path) as conn:
             data = get_hourly_detections(conn, date_str, timezone=tz)

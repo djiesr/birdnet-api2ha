@@ -14,8 +14,8 @@ birdnet_config_path: ""
 http_host: "0.0.0.0"
 http_port: 8081
 
-# Fuseau IANA pour /api/hourly (schéma v2 uniquement). Obligatoire si le processus
-# tourne en UTC (Docker sans TZ) : les heures 0–23 suivent ce fuseau, pas SQLite localtime.
+# Fuseau IANA pour /api/hourly (schéma v2). Priorité : cette clé, sinon la variable
+# d'environnement TZ (Docker Compose). Vide = pas de zoneinfo sauf si TZ est un IANA valide.
 # Exemple : America/Toronto — aligner sur BirdNET-Go / lieu des enregistrements.
 timezone: ""
 
