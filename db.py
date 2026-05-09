@@ -52,6 +52,33 @@ class SchemaError(Exception):
     pass
 
 
+def _label_preferred_name_sql(conn: sqlite3.Connection, alias: str = "l") -> str:
+    """
+    Expression SQL pour le nom « commun » / localisé dans labels (schéma v2).
+    BirdNET-Go peut exposer common_name, name, label, etc. selon la version.
+    """
+    rows = conn.execute("PRAGMA table_info(labels)").fetchall()
+    col_by_lower = {str(r[1]).lower(): str(r[1]) for r in rows}
+    candidates = (
+        "common_name",
+        "name",
+        "label",
+        "vernacular_name",
+        "name_fr",
+        "fr_name",
+        "localized_name",
+        "locale_name",
+    )
+    for c in candidates:
+        actual = col_by_lower.get(c.lower())
+        if actual:
+            a = alias
+            # Identifiant quoté pour éviter les mots réservés
+            qcol = actual.replace('"', '""')
+            return f'COALESCE(NULLIF(TRIM({a}."{qcol}"), \'\'), {a}.scientific_name)'
+    return f"{alias}.scientific_name"
+
+
 def _parse_legacy_datetime(date_str: str, time_str: str) -> str:
     """Build ISO timestamp from notes date (YYYY-MM-DD) and time (HH:MM:SS or similar)."""
     if not date_str:
@@ -268,8 +295,9 @@ def get_stats_v2(
         except ValueError:
             pass
 
-    sql = """
-        SELECT l.scientific_name, COUNT(*) AS count,
+    name_sql = _label_preferred_name_sql(conn)
+    sql = f"""
+        SELECT l.scientific_name, MAX({name_sql}) AS common_name, COUNT(*) AS count,
                MAX(ic.url) AS image_url
         FROM detections d
         JOIN labels l ON l.id = d.label_id
@@ -289,7 +317,9 @@ def get_stats_v2(
     rows = cur.fetchall()
     return [
         {
-            "common_name": (r := _row_to_dict(row)).get("scientific_name") or "",
+            "common_name": (r := _row_to_dict(row)).get("common_name")
+            or r.get("scientific_name")
+            or "",
             "scientific_name": r.get("scientific_name") or "",
             "count": int(r.get("count") or 0),
             "image_url": r.get("image_url") or "",
@@ -318,8 +348,10 @@ def get_hourly_detections(conn: sqlite3.Connection, date_str: str) -> dict:
         """
         rows = [_row_to_dict(r) for r in conn.execute(sql, [date_str]).fetchall()]
     elif schema == "v2":
-        sql = """
+        name_sql = _label_preferred_name_sql(conn)
+        sql = f"""
             SELECT l.scientific_name,
+                   MAX({name_sql}) AS common_name,
                    CAST(strftime('%H', datetime(d.detected_at, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
                    COUNT(*) AS count,
                    MAX(ic.url) AS image_url
@@ -361,10 +393,25 @@ def get_hourly_detections(conn: sqlite3.Connection, date_str: str) -> dict:
     ).fetchone()
     de = _row_to_dict(de_row) if de_row else {}
 
+    # Heures 0–23 alignées sur le même fuseau que strftime(..., 'localtime') (serveur / TZ conteneur).
+    sr_h = ss_h = None
+    if de.get("sunrise") is not None:
+        try:
+            sr_h = int(datetime.fromtimestamp(int(de["sunrise"])).hour)
+        except (ValueError, TypeError, OSError, OverflowError):
+            sr_h = None
+    if de.get("sunset") is not None:
+        try:
+            ss_h = int(datetime.fromtimestamp(int(de["sunset"])).hour)
+        except (ValueError, TypeError, OSError, OverflowError):
+            ss_h = None
+
     return {
         "date": date_str,
         "sunrise": de.get("sunrise"),
         "sunset": de.get("sunset"),
+        "sunrise_hour": sr_h,
+        "sunset_hour": ss_h,
         "species": species_list,
     }
 
@@ -397,8 +444,10 @@ def get_aggregate_detections(conn: sqlite3.Connection, mode: str) -> dict:
         period_leg = "strftime('%Y-%m', n.date)"
 
     if schema == "v2":
+        name_sql = _label_preferred_name_sql(conn)
         sql = f"""
             SELECT l.scientific_name,
+                   MAX({name_sql}) AS common_name,
                    {period_v2} AS period,
                    COUNT(*) AS count,
                    MAX(ic.url) AS image_url

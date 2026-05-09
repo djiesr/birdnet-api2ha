@@ -317,6 +317,8 @@ environment:
 
 Puis redémarrez le conteneur. Sur un Raspberry avec systemd, le fuseau suit en général celui du système (`timedatectl`).
 
+L’endpoint **`GET /api/hourly`** renvoie aussi **`sunrise_hour`** et **`sunset_hour`** (entiers 0–23), calculés avec le **même fuseau** que les colonnes horaires, pour que la barre *Daylight* de la carte Lovelace s’aligne sur la grille.
+
 ## Backup et base de test
 
 Tu peux pointer `database_path` vers une **copie** de ta base (ex. ton backup `birdnet-backup-20260215-0937/birdnet.db`) pour tester sans toucher à l’installation BirdNET-Go en production.
