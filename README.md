@@ -301,6 +301,22 @@ cors:
     # - "http://192.168.10.50:8123"  # si vous accédez à HA via IP
 ```
 
+### Fuseau horaire (Docker / serveur)
+
+L’API regroupe les détections par heure et par jour avec SQLite (`datetime(..., 'localtime')`). L’« heure locale » utilisée est celle du **processus Python** (système / conteneur).
+
+- Sous **Docker**, sans `TZ`, l’image est souvent en **UTC** : les colonnes 0–23 h du mode « Heure » ne correspondront pas à votre fuseau.
+- **Recommandation :** définir la même variable d’environnement **`TZ`** que pour BirdNET-Go, par exemple :
+
+```yaml
+environment:
+  - TZ=America/Toronto
+```
+
+(Exemple pour un service `birdnet-api2ha` dans Docker Compose ; adaptez le fuseau IANA à votre région.)
+
+Puis redémarrez le conteneur. Sur un Raspberry avec systemd, le fuseau suit en général celui du système (`timedatectl`).
+
 ## Backup et base de test
 
 Tu peux pointer `database_path` vers une **copie** de ta base (ex. ton backup `birdnet-backup-20260215-0937/birdnet.db`) pour tester sans toucher à l’installation BirdNET-Go en production.
