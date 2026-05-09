@@ -268,9 +268,29 @@ python main.py
 python main.py --mqtt
 ```
 
-### NAS / Docker (archive `.tar.gz`, sans `git`)
+### NAS / Docker (dernière release automatiquement)
 
-Pour un conteneur qui monte le code depuis un dossier partagé (ex. UGREEN), remplacez le chemin et la **version** (`v1.1.4`) par celle de la [release souhaitée](https://github.com/djiesr/birdnet-api2ha/releases).
+Un script récupère le **tag** de la [dernière release](https://github.com/djiesr/birdnet-api2ha/releases/latest) via l’API GitHub, télécharge l’archive, détecte le nom du dossier extrait, sauvegarde / restaure `config.yaml`, puis redémarre le conteneur.
+
+**Une ligne** (chemin et conteneur par défaut : UGREEN / `birdnet-api2ha`) :
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/djiesr/birdnet-api2ha/master/scripts/update-latest-nas.sh" | sudo bash
+```
+
+*(Si la branche par défaut du dépôt est `main` au lieu de `master`, remplacez `master` par `main` dans l’URL.)*
+
+**Chemins / conteneur personnalisés** (exemple : autre volume ou nom de service) :
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/djiesr/birdnet-api2ha/master/scripts/update-latest-nas.sh" | sudo env BIRDNET_API2HA_DIR=/volume2/docker/birdnet-api2ha BIRDNET_API2HA_NAME=birdnet-api2ha bash
+```
+
+Prérequis : `curl`, `tar`, `python3` (ou `python`), et `docker` accessibles en root.
+
+#### Mise à jour manuelle (sans script)
+
+Exemple pour la release **v1.1.4** — remplacez le tag par celui affiché sur GitHub si vous figez une version :
 
 ```bash
 sudo docker stop birdnet-api2ha
@@ -286,9 +306,7 @@ sudo docker logs --tail 40 birdnet-api2ha
 curl -s http://127.0.0.1:8081/health
 ```
 
-- Le dossier extrait s’appelle **`birdnet-api2ha-1.1.4`** (même numéro que le tag, avec un tiret).
-- Après copie de `config.yaml`, vérifiez qu’il contient toujours **`cors:`**, **`timezone:`** (IANA, ex. `America/Toronto`) et les chemins `database_path` / volumes.
-- Si le port hôte n’est pas **8081**, adaptez l’URL du `curl`.
+Après toute mise à jour, vérifiez **`config.yaml`** : **`cors:`**, **`timezone:`** (IANA), chemins `database_path` / volumes. Adaptez le port du `curl` si besoin.
 
 ### Vérifier la version installée
 
